@@ -2,24 +2,32 @@ import { api } from "./http";
 
 export const apiPresensiToday = () => api.get("/presensi/today");
 
-export const apiPresensiMasuk = ({ lat, lng, foto_path }) =>
-  api.post("/presensi/masuk", { lat, lng, foto_path });
+export const apiPresensiMasuk = (payload) => {
+  const formData = new FormData();
+  formData.append('lat', payload.lat);
+  formData.append('lng', payload.lng);
+  formData.append('foto_path', payload.foto_path);
+  return api.post("/presensi/masuk", formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+};
 
-export const apiPresensiPulang = ({ lat, lng, foto_path }) =>
-  api.post("/presensi/pulang", { lat, lng, foto_path });
+export const apiPresensiPulang = (payload) => {
+  const formData = new FormData();
+  formData.append('lat', payload.lat);
+  formData.append('lng', payload.lng);
+  formData.append('foto_path', payload.foto_path);
+  return api.post("/presensi/pulang", formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+};
 
 export const apiPresensiRiwayat = (params = {}) => {
   const search = new URLSearchParams();
-
   Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") {
-      search.append(key, String(value));
-    }
+    if (value) search.append(key, String(value));
   });
-
-  const qs = search.toString();
-  return api.get(`/presensi/riwayat${qs ? `?${qs}` : ""}`);
+  return api.get(`/presensi/riwayat?${search.toString()}`);
 };
 
-export const apiResetRiwayat = () =>
-  api.post("/presensi/reset-riwayat", {});
+export const apiResetRiwayat = () => api.post("/presensi/reset-riwayat", {});

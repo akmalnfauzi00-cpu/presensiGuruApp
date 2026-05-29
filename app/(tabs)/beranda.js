@@ -1,538 +1,399 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { View, Text, Pressable, ScrollView, Alert, StyleSheet } from "react-native";
+import { 
+  View, 
+  Text, 
+  Pressable, 
+  ScrollView, 
+  Alert, 
+  StyleSheet, 
+  Modal, 
+  ActivityIndicator 
+} from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 
-import {
-  getNowWIB,
-  formatHHMMSS,
-  formatDateID,
-  isAfterTimeWIB,
-} from "../../src/utils/time";
-import { apiPresensiToday, apiResetRiwayat } from "../../src/api/presensi";
+import { getNowWIB, formatHHMMSS, formatDateID, isAfterTimeWIB } from "../../src/utils/time";
+import { apiPresensiToday } from "../../src/api/presensi";
 import { apiSettings } from "../../src/api/settings";
-import { clearAllPresensiLocal } from "../../src/utils/presensiLocal";
 
 export default function Beranda() {
   const router = useRouter();
-
   const [now, setNow] = useState(getNowWIB());
   const [settings, setSettings] = useState(null);
-
-  const [presensi, setPresensi] = useState({
-    jam_masuk: null,
-    jam_pulang: null,
-    status: null,
-    is_terlambat: 0,
+  const [loading, setLoading] = useState(true);
+  
+  const [modalPresensiVisible, setModalPresensiVisible] = useState(false);
+  const [modalPengajuanVisible, setModalPengajuanVisible] = useState(false);
+  
+  const [presensi, setPresensi] = useState({ 
+    jam_masuk: null, 
+    jam_pulang: null, 
+    is_libur: false, 
+    keterangan_libur: "",
+    statistik: { 
+      total_hadir: 0, 
+      total_izin: 0, 
+      total_alpha: 0, 
+      total_terlambat: 0 
+    }
   });
 
+  // Jam Realtime
   useEffect(() => {
     const t = setInterval(() => setNow(getNowWIB()), 1000);
     return () => clearInterval(t);
   }, []);
 
+  const greeting = useMemo(() => {
+    const hour = now.getHours();
+    if (hour >= 4 && hour < 11) return "Selamat Pagi";
+    if (hour >= 11 && hour < 15) return "Selamat Siang";
+    if (hour >= 15 && hour < 18) return "Selamat Sore";
+    return "Selamat Malam";
+  }, [now]);
+
   const loadAll = useCallback(async () => {
     try {
       const s = await apiSettings();
-      setSettings(s?.jam || null);
-
+      if (s && s.status === 'success') {
+        setSettings(s);
+      }
+      
       const res = await apiPresensiToday();
-      const p = res?.presensi;
-
       setPresensi({
-        jam_masuk: p?.jam_masuk || null,
-        jam_pulang: p?.jam_pulang || null,
-        status: p?.status || null,
-        is_terlambat: p?.is_terlambat || 0,
+        jam_masuk: res?.presensi?.jam_masuk || null,
+        jam_pulang: res?.presensi?.jam_pulang || null,
+        is_libur: s?.data?.is_libur || res?.is_libur || false,
+        keterangan_libur: s?.data?.keterangan_libur || res?.keterangan_libur || "",
+        statistik: {
+            total_hadir: res?.statistik?.total_hadir || 0,
+            total_izin: res?.statistik?.total_izin || 0,
+            total_alpha: res?.statistik?.total_alpha || 0,
+            total_terlambat: res?.statistik?.total_terlambat || 0
+        }
       });
     } catch (e) {
-      console.log("loadAll:", e?.message || e);
+      console.log("Error memuat data beranda:", e);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadAll();
-    }, [loadAll])
-  );
+  useFocusEffect(useCallback(() => { loadAll(); }, [loadAll]));
+
+  const jamMasukConfig = settings?.data?.jam?.jam_masuk || "--:--";
+  const jamPulangMin = settings?.data?.jam?.jam_pulang || "--:--";
+  const radiusMeter = settings?.data?.sekolah?.radius_meter || 30;
+  
+  const minHadirReward = settings?.data?.reward_rules?.persen_hadir_reward ?? 80;
+  const maxAlphaSp    = settings?.data?.reward_rules?.persen_alpha_sp     ?? 15;
+  const maxLateSp     = settings?.data?.reward_rules?.persen_terlambat_sp ?? 20;
+
+  // Hitung persentase guru bulan ini (dari statistik API)
+  const totalHariKerja = (presensi.statistik.total_hadir || 0)
+    + (presensi.statistik.total_izin || 0)
+    + (presensi.statistik.total_alpha || 0)
+    + (presensi.statistik.total_terlambat || 0);
+
+  const persenHadir    = totalHariKerja > 0 ? Math.round(((presensi.statistik.total_hadir  + (presensi.statistik.total_izin || 0)) / totalHariKerja) * 100) : 0;
+  const persenAlpha    = totalHariKerja > 0 ? Math.round((presensi.statistik.total_alpha    / totalHariKerja) * 100) : 0;
+  const persenTerlambat= totalHariKerja > 0 ? Math.round((presensi.statistik.total_terlambat/ totalHariKerja) * 100) : 0;
+
+  const isRewardSafe = persenHadir    >= minHadirReward;
+  const isAlphaSafe  = persenAlpha    <  maxAlphaSp;
+  const isLateSafe   = persenTerlambat < maxLateSp;
+  const isSPSafe = isAlphaSafe && isLateSafe;
 
   const sudahMasuk = !!presensi.jam_masuk;
   const sudahPulang = !!presensi.jam_pulang;
-
-  const jamPulangMin = settings?.jam_pulang
-    ? String(settings.jam_pulang).slice(0, 5)
-    : "15:30";
-
   const pulangBoleh = useMemo(() => isAfterTimeWIB(now, jamPulangMin), [now, jamPulangMin]);
-  const pulangDisabled = !pulangBoleh || !sudahMasuk || sudahPulang;
 
-  function goAmbil(type) {
-    router.push({ pathname: "/presensi/ambil", params: { type } });
-  }
+  const handleAksesPresensi = () => {
+    if (presensi.is_libur) {
+      Alert.alert("Hari Libur", `Sekolah sedang libur: ${presensi.keterangan_libur}.\nPresensi tidak tersedia.`);
+      return;
+    }
+    setModalPresensiVisible(true);
+  };
 
-  function goIzin() {
-    router.push("/pengajuan/izin");
-  }
+  const handleKlikMasuk = () => {
+    setModalPresensiVisible(false);
+    if (sudahMasuk) {
+      Alert.alert("Selesai", "Anda sudah melakukan absen masuk hari ini.");
+    } else {
+      router.push({ pathname: "/presensi/ambil", params: { type: "masuk" } });
+    }
+  };
 
-  function goSakit() {
-    router.push("/pengajuan/sakit");
-  }
+  const handleKlikPulang = () => {
+    setModalPresensiVisible(false);
+    if (!sudahMasuk) {
+      Alert.alert("Gagal", "Anda harus absen masuk terlebih dahulu.");
+    } else if (!pulangBoleh) {
+      Alert.alert("Belum Waktunya", `Absen pulang baru bisa dilakukan setelah jam ${jamPulangMin} WIB.`);
+    } else if (sudahPulang) {
+      Alert.alert("Selesai", "Anda sudah melakukan absen pulang hari ini.");
+    } else {
+      router.push({ pathname: "/presensi/ambil", params: { type: "pulang" } });
+    }
+  };
 
-  function goRiwayat() {
-    router.push("/pengajuan/riwayat");
-  }
-
-  async function resetRiwayat() {
-    Alert.alert(
-      "Reset Riwayat",
-      "Ini akan menghapus SEMUA riwayat presensi akun ini di website dan aplikasi. Lanjutkan?",
-      [
-        { text: "Batal", style: "cancel" },
-        {
-          text: "Reset",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await apiResetRiwayat();
-              await clearAllPresensiLocal();
-              await loadAll();
-              Alert.alert("Berhasil", "Riwayat presensi berhasil direset.");
-            } catch (e) {
-              Alert.alert("Gagal", e?.message || "Gagal reset riwayat.");
-            }
-          },
-        },
-      ]
+  if (loading) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator size="large" color="#2563EB" />
+        <Text style={styles.loadingText}>Menyiapkan Data Guru...</Text>
+      </View>
     );
   }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <LinearGradient
-        colors={["#2563EB", "#1D4ED8"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.heroCard}
-      >
-        <View style={styles.heroTop}>
-          <View>
-            <Text style={styles.heroWelcome}>Selamat Datang</Text>
-            <Text style={styles.heroTitle}>Presensi Guru</Text>
-            <Text style={styles.heroDate}>{formatDateID(now)}</Text>
+    <View style={styles.screen}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        
+        <LinearGradient colors={["#1E3A8A", "#3B82F6"]} style={styles.headerBackground}>
+          <View style={styles.headerTopRow}>
+            <View>
+              <Text style={styles.greetingText}>{greeting},</Text>
+              <Text style={styles.appNameText}>Guru Hebat</Text>
+            </View>
+            <View style={styles.headerIconWrap}>
+              <Ionicons name="person" size={22} color="#1E3A8A" />
+            </View>
+          </View>
+        </LinearGradient>
+
+        <View style={styles.integratedCard}>
+          <View style={styles.liveTimeSection}>
+            <View>
+              <Text style={styles.infoLabel}>Hari & Tanggal</Text>
+              <Text style={styles.infoValueDate}>{formatDateID(now)}</Text>
+            </View>
+            <View style={{ alignItems: "flex-end" }}>
+              <Text style={styles.infoLabel}>Jam Saat Ini</Text>
+              <Text style={styles.infoValueClock}>{formatHHMMSS(now)}</Text>
+            </View>
           </View>
 
-          <View style={styles.heroIconWrap}>
-            <Ionicons name="school-outline" size={24} color="#fff" />
+          <View style={styles.divider} />
+
+          <View style={styles.scheduleSection}>
+            <View style={styles.scheduleItem}>
+              <Ionicons name="log-in-outline" size={18} color="#059669" />
+              <Text style={styles.scheduleText}>Masuk: {jamMasukConfig} WIB</Text>
+            </View>
+            <View style={styles.scheduleItem}>
+              <Ionicons name="log-out-outline" size={18} color="#D97706" />
+              <Text style={styles.scheduleText}>Pulang: {jamPulangMin} WIB</Text>
+            </View>
+          </View>
+
+          <View style={styles.rewardContainer}>
+            <View style={[styles.rewardMiniCard, { borderLeftColor: isRewardSafe ? "#10B981" : "#EF4444" }]}>
+                <Ionicons name="gift" size={16} color={isRewardSafe ? "#10B981" : "#EF4444"} />
+                <View>
+                    <Text style={styles.rewardLabel}>Status Reward</Text>
+                    <Text style={[styles.rewardStatus, { color: isRewardSafe ? "#059669" : "#DC2626" }]}>
+                        {isRewardSafe ? "Kualifikasi" : "Tidak Layak"}
+                    </Text>
+                </View>
+            </View>
+            <View style={[styles.rewardMiniCard, { borderLeftColor: isSPSafe ? "#3B82F6" : "#F59E0B" }]}>
+                <Ionicons name="warning" size={16} color={isSPSafe ? "#3B82F6" : "#F59E0B"} />
+                <View>
+                    <Text style={styles.rewardLabel}>Peringatan SP</Text>
+                    <Text style={[styles.rewardStatus, { color: isSPSafe ? "#2563EB" : "#D97706" }]}>
+                        {isSPSafe ? "Zona Aman" : (!isAlphaSafe ? "SP (Alpha)" : "SP (Telat)")}
+                    </Text>
+                </View>
+            </View>
+          </View>
+
+          {presensi.is_libur ? (
+            <View style={[styles.locationBadge, { backgroundColor: "#FEF3C7", marginTop: 12 }]}>
+              <Ionicons name="calendar-clear" size={20} color="#D97706" />
+              <View style={styles.locationTextWrap}>
+                <Text style={[styles.locationTitle, { color: "#B45309" }]}>Hari Ini Libur</Text>
+                <Text style={[styles.locationSubtitle, { color: "#D97706" }]}>{presensi.keterangan_libur}</Text>
+              </View>
+            </View>
+          ) : (
+            <View style={[styles.locationBadge, { marginTop: 12 }]}>
+              <Ionicons name="location" size={22} color="#2563EB" />
+              <View style={styles.locationTextWrap}>
+                <Text style={styles.locationTitle}>SMP Muhammadiyah 2 Karanglewas</Text>
+                <Text style={styles.locationSubtitle}>Batas Radius Absen: {radiusMeter} Meter</Text>
+              </View>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.menuContainer}>
+          <Text style={styles.sectionTitle}>Akses Cepat</Text>
+          <View style={styles.gridRow}>
+            <Pressable onPress={handleAksesPresensi} style={({ pressed }) => [styles.gridItem, pressed && { transform: [{ scale: 0.95 }] }]}>
+              <View style={[styles.gridIconBox, { backgroundColor: "#ECFDF5" }]}><Ionicons name="camera" size={28} color="#10B981" /></View>
+              <Text style={styles.gridLabel}>Presensi</Text>
+              <Text style={styles.gridSubtitle}>{sudahPulang ? "Tuntas" : (sudahMasuk ? "Sudah Masuk" : "Kamera")}</Text>
+            </Pressable>
+            <Pressable onPress={() => setModalPengajuanVisible(true)} style={({ pressed }) => [styles.gridItem, pressed && { transform: [{ scale: 0.95 }] }]}>
+              <View style={[styles.gridIconBox, { backgroundColor: "#EFF6FF" }]}><Ionicons name="document-text" size={28} color="#3B82F6" /></View>
+              <Text style={styles.gridLabel}>Pengajuan</Text>
+              <Text style={styles.gridSubtitle}>Izin & Sakit</Text>
+            </Pressable>
+            <Pressable onPress={() => router.push("/riwayat")} style={({ pressed }) => [styles.gridItem, pressed && { transform: [{ scale: 0.95 }] }]}>
+              <View style={[styles.gridIconBox, { backgroundColor: "#F5F3FF" }]}><Ionicons name="calendar" size={28} color="#8B5CF6" /></View>
+              <Text style={styles.gridLabel}>Riwayat</Text>
+              <Text style={styles.gridSubtitle}>Rekap Absen</Text>
+            </Pressable>
           </View>
         </View>
 
-        <Text style={styles.heroClock}>{formatHHMMSS(now)}</Text>
+        {/* ========================================================================= */}
+        {/* BANNER MINIMALIS TANPA IKON (ULTRA CLEAN) */}
+        {/* ========================================================================= */}
+        <View style={styles.modernBannerContainer}>
+          <LinearGradient 
+            colors={["#0F172A", "#1E293B"]} 
+            start={{x: 0, y: 0}} 
+            end={{x: 1, y: 1}} 
+            style={styles.modernBannerBg}
+          >
+            <Text style={styles.modernBannerTitle}>Target & Batasan Bulan Ini</Text>
+            
+            <View style={styles.modernRuleGrid}>
+              <View style={styles.modernRuleCard}>
+                <Text style={styles.modernRuleLabel}>MIN. HADIR</Text>
+                <Text style={[styles.modernRuleValue, { color: '#FACC15' }]}>{minHadirReward}%</Text>
+              </View>
 
-        <View style={styles.heroScheduleBox}>
-          <Text style={styles.heroScheduleText}>
-            {settings
-              ? `Masuk ${String(settings.jam_masuk).slice(0, 5)} • Pulang ${String(settings.jam_pulang).slice(0, 5)}`
-              : "Memuat jam presensi..."}
-          </Text>
+              <View style={styles.modernRuleCard}>
+                <Text style={styles.modernRuleLabel}>MAKS. ALPA</Text>
+                <Text style={[styles.modernRuleValue, { color: '#FB7185' }]}>{maxAlphaSp}%</Text>
+              </View>
+
+              <View style={styles.modernRuleCard}>
+                <Text style={styles.modernRuleLabel}>MAKS. TELAT</Text>
+                <Text style={[styles.modernRuleValue, { color: '#FDBA74' }]}>{maxLateSp}%</Text>
+              </View>
+            </View>
+          </LinearGradient>
         </View>
-      </LinearGradient>
+      </ScrollView>
 
-      <View style={styles.statusCard}>
-        <Text style={styles.sectionTitle}>Status Presensi Hari Ini</Text>
-
-        <View style={styles.statusRow}>
-          <StatusBadge
-            label={sudahMasuk ? `Masuk ${presensi.jam_masuk}` : "Belum Masuk"}
-            type={sudahMasuk ? "success" : "neutral"}
-            icon={sudahMasuk ? "checkmark-circle" : "time-outline"}
-          />
-          <StatusBadge
-            label={sudahPulang ? `Pulang ${presensi.jam_pulang}` : "Belum Pulang"}
-            type={sudahPulang ? "success" : "warning"}
-            icon={sudahPulang ? "checkmark-done-circle" : "walk-outline"}
-          />
+      {/* MODAL BOTTOM SHEET (TIDAK BERUBAH) */}
+      <Modal visible={modalPresensiVisible} transparent animationType="slide" onRequestClose={() => setModalPresensiVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={{ flex: 1 }} onPress={() => setModalPresensiVisible(false)} />
+          <View style={styles.modalContent}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Pilih Presensi</Text>
+            <Text style={styles.modalSubtitle}>Silakan pilih jenis presensi Anda saat ini</Text>
+            <Pressable style={({ pressed }) => [styles.optCard, sudahMasuk && styles.optCardDisabled, pressed && !sudahMasuk && { transform: [{ scale: 0.98 }] }]} onPress={handleKlikMasuk}>
+              <View style={[styles.optIconWrap, { backgroundColor: "#DCFCE7" }]}><Ionicons name={sudahMasuk ? "checkmark-circle" : "log-in"} size={26} color="#16A34A" /></View>
+              <View style={styles.optTextWrap}><Text style={styles.optTitle}>Absen Masuk</Text><Text style={styles.optDesc}>{sudahMasuk ? `Selesai jam ${presensi.jam_masuk}` : "Tersedia sekarang"}</Text></View>
+              <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
+            </Pressable>
+            <Pressable style={({ pressed }) => [styles.optCard, (!pulangBoleh || !sudahMasuk || sudahPulang) && styles.optCardDisabled, pressed && pulangBoleh && sudahMasuk && !sudahPulang && { transform: [{ scale: 0.98 }] }]} onPress={handleKlikPulang}>
+              <View style={[styles.optIconWrap, { backgroundColor: "#FEF3C7" }]}><Ionicons name={sudahPulang ? "checkmark-circle" : "log-out"} size={26} color="#D97706" /></View>
+              <View style={styles.optTextWrap}><Text style={styles.optTitle}>Absen Pulang</Text><Text style={styles.optDesc}>{sudahPulang ? `Selesai jam ${presensi.jam_pulang}` : (!pulangBoleh ? `Buka jam ${jamPulangMin}` : "Tersedia")}</Text></View>
+              <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
+            </Pressable>
+            <Pressable style={styles.cancelBtn} onPress={() => setModalPresensiVisible(false)}><Text style={styles.cancelBtnText}>Batal</Text></Pressable>
+          </View>
         </View>
+      </Modal>
 
-        <View style={styles.infoBanner}>
-          <Ionicons name="location-outline" size={18} color="#0F7A3B" />
-          <Text style={styles.infoBannerText}>
-            Lokasi presensi mengikuti pengaturan dari website admin
-          </Text>
+      {/* MODAL PENGAJUAN (TIDAK BERUBAH) */}
+      <Modal visible={modalPengajuanVisible} transparent animationType="slide" onRequestClose={() => setModalPengajuanVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={{ flex: 1 }} onPress={() => setModalPengajuanVisible(false)} />
+          <View style={styles.modalContent}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Menu Pengajuan</Text>
+            <Pressable style={styles.optCard} onPress={() => { setModalPengajuanVisible(false); router.push("/pengajuan/riwayat"); }}>
+              <View style={[styles.optIconWrap, { backgroundColor: "#EFF6FF" }]}><Ionicons name="time" size={26} color="#2563EB" /></View>
+              <View style={styles.optTextWrap}><Text style={styles.optTitle}>Status Pengajuan</Text><Text style={styles.optDesc}>Riwayat izin & sakit</Text></View>
+            </Pressable>
+            <Pressable style={styles.optCard} onPress={() => { setModalPengajuanVisible(false); router.push("/pengajuan/koreksi"); }}>
+              <View style={[styles.optIconWrap, { backgroundColor: "#F3E8FF" }]}><Ionicons name="create-outline" size={26} color="#7C3AED" /></View>
+              <View style={styles.optTextWrap}>
+                <Text style={styles.optTitle}>Koreksi Presensi</Text>
+                <Text style={styles.optDesc}>Lupa absen hari ini</Text>
+              </View>
+            </Pressable>
+            <Pressable style={styles.optCard} onPress={() => { setModalPengajuanVisible(false); router.push("/pengajuan/izin"); }}>
+              <View style={[styles.optIconWrap, { backgroundColor: "#F3E8FF" }]}><Ionicons name="mail" size={26} color="#9333EA" /></View>
+              <View style={styles.optTextWrap}><Text style={styles.optTitle}>Ajukan Izin</Text><Text style={styles.optDesc}>Form keperluan pribadi</Text></View>
+            </Pressable>
+            <Pressable style={styles.optCard} onPress={() => { setModalPengajuanVisible(false); router.push("/pengajuan/sakit"); }}>
+              <View style={[styles.optIconWrap, { backgroundColor: "#FEE2E2" }]}><Ionicons name="medkit" size={26} color="#DC2626" /></View>
+              <View style={styles.optTextWrap}><Text style={styles.optTitle}>Ajukan Sakit</Text><Text style={styles.optDesc}>Upload surat dokter</Text></View>
+            </Pressable>
+            <Pressable style={styles.cancelBtn} onPress={() => setModalPengajuanVisible(false)}><Text style={styles.cancelBtnText}>Batal</Text></Pressable>
+          </View>
         </View>
-      </View>
+      </Modal>
 
-      <View style={styles.actionGrid}>
-        <ActionCard
-          title={sudahMasuk ? "Sudah Presensi" : "Presensi Masuk"}
-          subtitle={sudahMasuk ? `Jam ${presensi.jam_masuk}` : "Gunakan kamera & GPS"}
-          icon="log-in-outline"
-          solid
-          disabled={sudahMasuk}
-          onPress={() => !sudahMasuk && goAmbil("masuk")}
-        />
-
-        <ActionCard
-          title={sudahPulang ? "Sudah Presensi" : "Presensi Pulang"}
-          subtitle={
-            sudahPulang
-              ? `Jam ${presensi.jam_pulang}`
-              : !sudahMasuk
-              ? "Masuk dulu sebelum pulang"
-              : pulangBoleh
-              ? "Gunakan kamera & GPS"
-              : `Tersedia jam ${jamPulangMin}`
-          }
-          icon="log-out-outline"
-          disabled={pulangDisabled}
-          onPress={() => !pulangDisabled && goAmbil("pulang")}
-        />
-      </View>
-
-      <View style={styles.menuCard}>
-        <Text style={styles.sectionTitle}>Menu Pengajuan</Text>
-
-        <View style={styles.menuRow}>
-          <MenuButton
-            title="Izin"
-            subtitle="Ajukan izin tidak masuk"
-            icon="document-text-outline"
-            color="#F59E0B"
-            onPress={goIzin}
-          />
-
-          <MenuButton
-            title="Sakit"
-            subtitle="Ajukan surat sakit"
-            icon="medkit-outline"
-            color="#EF4444"
-            onPress={goSakit}
-          />
-        </View>
-
-        <View style={{ marginTop: 12 }}>
-          <MenuButton
-            title="Riwayat Pengajuan"
-            subtitle="Lihat izin & sakit yang pernah dikirim"
-            icon="time-outline"
-            color="#2563EB"
-            onPress={goRiwayat}
-            full
-          />
-        </View>
-      </View>
-
-      <Pressable style={styles.resetButton} onPress={resetRiwayat}>
-        <Ionicons name="trash-outline" size={18} color="#fff" />
-        <Text style={styles.resetButtonText}>Reset Riwayat Presensi</Text>
-      </Pressable>
-    </ScrollView>
-  );
-}
-
-function StatusBadge({ label, type, icon }) {
-  const stylesByType = {
-    success: { bg: "#DCFCE7", color: "#166534" },
-    warning: { bg: "#FEF3C7", color: "#92400E" },
-    neutral: { bg: "#E2E8F0", color: "#334155" },
-  };
-
-  const current = stylesByType[type] || stylesByType.neutral;
-
-  return (
-    <View style={[styles.badge, { backgroundColor: current.bg }]}>
-      <Ionicons name={icon} size={16} color={current.color} />
-      <Text style={[styles.badgeText, { color: current.color }]}>{label}</Text>
     </View>
   );
 }
 
-function ActionCard({ title, subtitle, icon, onPress, disabled, solid = false }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={[
-        styles.actionCard,
-        solid ? styles.actionCardSolid : styles.actionCardOutline,
-        disabled && styles.actionCardDisabled,
-      ]}
-    >
-      <View
-        style={[
-          styles.actionIconWrap,
-          solid ? styles.actionIconWrapSolid : styles.actionIconWrapOutline,
-          disabled && styles.actionIconWrapDisabled,
-        ]}
-      >
-        <Ionicons
-          name={icon}
-          size={22}
-          color={disabled ? "#64748B" : solid ? "#fff" : "#2563EB"}
-        />
-      </View>
-
-      <Text
-        style={[
-          styles.actionTitle,
-          solid && !disabled ? { color: "#fff" } : null,
-          disabled ? { color: "#475569" } : null,
-        ]}
-      >
-        {title}
-      </Text>
-
-      <Text
-        style={[
-          styles.actionSubtitle,
-          solid && !disabled ? { color: "rgba(255,255,255,0.92)" } : null,
-        ]}
-      >
-        {subtitle}
-      </Text>
-    </Pressable>
-  );
-}
-
-function MenuButton({ title, subtitle, icon, color, onPress, full = false }) {
-  return (
-    <Pressable style={[styles.menuButton, full && { flex: 0 }]} onPress={onPress}>
-      <View style={[styles.menuIconWrap, { backgroundColor: `${color}18` }]}>
-        <Ionicons name={icon} size={22} color={color} />
-      </View>
-      <Text style={styles.menuTitle}>{title}</Text>
-      <Text style={styles.menuSubtitle}>{subtitle}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#F3F6FB",
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 28,
-    gap: 16,
-  },
-  heroCard: {
-    borderRadius: 24,
-    padding: 18,
-    shadowColor: "#1D4ED8",
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 5,
-  },
-  heroTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  heroWelcome: {
-    color: "rgba(255,255,255,0.86)",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  heroTitle: {
-    color: "#fff",
-    fontSize: 24,
-    fontWeight: "800",
-    marginTop: 4,
-  },
-  heroDate: {
-    color: "rgba(255,255,255,0.88)",
-    marginTop: 6,
-    fontSize: 13,
-  },
-  heroIconWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "rgba(255,255,255,0.16)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  heroClock: {
-    color: "#fff",
-    fontSize: 38,
-    fontWeight: "900",
-    marginTop: 18,
-    textAlign: "center",
-  },
-  heroScheduleBox: {
-    marginTop: 14,
-    alignSelf: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  heroScheduleText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  statusCard: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 16,
-    shadowColor: "#0F172A",
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#0F172A",
-    marginBottom: 12,
-  },
-  statusRow: {
-    gap: 10,
-  },
-  badge: {
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  badgeText: {
-    fontWeight: "800",
-    fontSize: 13,
-  },
-  infoBanner: {
-    marginTop: 14,
-    backgroundColor: "#ECFDF5",
-    borderRadius: 14,
-    padding: 12,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-  },
-  infoBannerText: {
-    flex: 1,
-    color: "#166534",
-    fontSize: 12.5,
-    lineHeight: 18,
-    fontWeight: "600",
-  },
-  actionGrid: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  actionCard: {
-    flex: 1,
-    borderRadius: 20,
-    padding: 16,
-    minHeight: 150,
-    justifyContent: "space-between",
-    shadowColor: "#0F172A",
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
-  },
-  actionCardSolid: {
-    backgroundColor: "#2563EB",
-  },
-  actionCardOutline: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#DCE5F3",
-  },
-  actionCardDisabled: {
-    backgroundColor: "#E2E8F0",
-    borderColor: "#E2E8F0",
-  },
-  actionIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  actionIconWrapSolid: {
-    backgroundColor: "rgba(255,255,255,0.16)",
-  },
-  actionIconWrapOutline: {
-    backgroundColor: "#EFF6FF",
-  },
-  actionIconWrapDisabled: {
-    backgroundColor: "#CBD5E1",
-  },
-  actionTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#0F172A",
-    marginTop: 14,
-  },
-  actionSubtitle: {
-    fontSize: 13,
-    color: "#64748B",
-    lineHeight: 18,
-    marginTop: 6,
-    fontWeight: "600",
-  },
-  menuCard: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 16,
-    shadowColor: "#0F172A",
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
-  },
-  menuRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  menuButton: {
-    flex: 1,
-    backgroundColor: "#F8FAFC",
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-  },
-  menuIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  menuTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#0F172A",
-  },
-  menuSubtitle: {
-    marginTop: 6,
-    fontSize: 12.5,
-    color: "#64748B",
-    lineHeight: 18,
-    fontWeight: "600",
-  },
-  resetButton: {
-    backgroundColor: "#DC2626",
-    borderRadius: 16,
-    paddingVertical: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 2,
-  },
-  resetButtonText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 14,
-  },
+  loadingScreen: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#F8FAFC" },
+  loadingText: { marginTop: 12, fontSize: 14, color: "#64748B", fontWeight: "600" },
+  screen: { flex: 1, backgroundColor: "#F8FAFC" },
+  scrollContent: { paddingBottom: 40 },
+  headerBackground: { paddingTop: 60, paddingHorizontal: 24, paddingBottom: 80, borderBottomLeftRadius: 40, borderBottomRightRadius: 40 },
+  headerTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  greetingText: { fontSize: 14, color: "rgba(255,255,255,0.8)", fontWeight: "600", marginBottom: 2 },
+  appNameText: { fontSize: 24, color: "#FFFFFF", fontWeight: "900" },
+  headerIconWrap: { width: 44, height: 44, backgroundColor: "#FFFFFF", borderRadius: 22, justifyContent: "center", alignItems: "center" },
+  integratedCard: { backgroundColor: "#FFFFFF", marginHorizontal: 20, marginTop: -50, borderRadius: 24, padding: 20, elevation: 5, marginBottom: 28 },
+  liveTimeSection: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  infoLabel: { fontSize: 12, color: "#64748B", fontWeight: "600" },
+  infoValueDate: { fontSize: 15, fontWeight: "800", color: "#1E3A8A" },
+  infoValueClock: { fontSize: 24, fontWeight: "900", color: "#0F172A" },
+  divider: { height: 1, backgroundColor: "#F1F5F9", marginVertical: 16 },
+  scheduleSection: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
+  scheduleItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  scheduleText: { fontSize: 13, fontWeight: "700", color: "#334155" },
+  rewardContainer: { flexDirection: "row", justifyContent: "space-between", gap: 10, marginBottom: 4 },
+  rewardMiniCard: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#F8FAFC", padding: 12, borderRadius: 16, borderLeftWidth: 3 },
+  rewardLabel: { fontSize: 10, color: "#64748B", fontWeight: "600" },
+  rewardStatus: { fontSize: 11, fontWeight: "800" },
+  locationBadge: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#EFF6FF", padding: 12, borderRadius: 16 },
+  locationTextWrap: { flex: 1 },
+  locationTitle: { fontSize: 13, fontWeight: "800", color: "#1E3A8A" },
+  locationSubtitle: { fontSize: 11, color: "#3B82F6" },
+  menuContainer: { marginHorizontal: 20, marginBottom: 30 },
+  sectionTitle: { fontSize: 16, fontWeight: "900", color: "#0F172A", marginBottom: 16 },
+  gridRow: { flexDirection: "row", justifyContent: "space-between", gap: 10 },
+  gridItem: { flex: 1, backgroundColor: "#FFFFFF", borderRadius: 20, paddingVertical: 16, alignItems: "center", elevation: 2 },
+  gridIconBox: { width: 52, height: 52, borderRadius: 18, justifyContent: "center", alignItems: "center", marginBottom: 12 },
+  gridLabel: { fontSize: 13, fontWeight: "800", color: "#0F172A" },
+  gridSubtitle: { fontSize: 10, color: "#64748B" },
+  
+  // STYLES BANNER MINIMALIS BARU
+  modernBannerContainer: { marginHorizontal: 20, marginBottom: 20 },
+  modernBannerBg: { borderRadius: 24, padding: 24, overflow: 'hidden', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
+  modernBannerTitle: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 20, textAlign: 'center', textTransform: 'uppercase' },
+  modernRuleGrid: { flexDirection: 'row', justifyContent: 'space-between' },
+  modernRuleCard: { flex: 1, alignItems: 'center' },
+  modernRuleLabel: { color: 'rgba(255,255,255,0.4)', fontSize: 9, fontWeight: '700', marginBottom: 4 },
+  modernRuleValue: { fontSize: 16, fontWeight: '900' },
+
+  modalOverlay: { flex: 1, backgroundColor: "rgba(15,23,42,0.6)", justifyContent: "flex-end" },
+  modalContent: { backgroundColor: "#FFFFFF", borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24 },
+  modalHandle: { width: 40, height: 5, backgroundColor: "#E2E8F0", borderRadius: 3, alignSelf: "center", marginBottom: 24 },
+  modalTitle: { fontSize: 22, fontWeight: "900", textAlign: "center", marginBottom: 24 },
+  optCard: { flexDirection: "row", alignItems: "center", padding: 16, borderWidth: 1, borderColor: "#F1F5F9", borderRadius: 20, marginBottom: 12 },
+  optCardDisabled: { opacity: 0.6, backgroundColor: "#F8FAFC" },
+  optIconWrap: { width: 52, height: 52, borderRadius: 16, justifyContent: "center", alignItems: "center", marginRight: 16 },
+  optTextWrap: { flex: 1 },
+  optTitle: { fontSize: 16, fontWeight: "800" },
+  optDesc: { fontSize: 13, color: "#64748B" },
+  cancelBtn: { marginTop: 12, padding: 18, borderRadius: 18, backgroundColor: "#F1F5F9", alignItems: "center" },
+  cancelBtnText: { fontSize: 16, fontWeight: "800", color: "#475569" }
 });

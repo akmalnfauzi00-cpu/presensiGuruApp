@@ -1,180 +1,47 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import {
-  View,
-  Text,
-  Pressable,
-  ScrollView,
-  Alert,
-  Linking,
-  Platform,
-  Modal,
-  TextInput,
+  View, Text, Pressable, ScrollView, Alert, Linking, Modal, TextInput, StyleSheet, ActivityIndicator, RefreshControl
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { getToken } from "../../src/utils/storage";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { apiPresensiRiwayat } from "../../src/api/presensi";
 import { apiRewardSpMe, apiRewardSpDownloadUrl } from "../../src/api/rewardsp";
 import { getApiBaseUrl } from "../../src/api/http";
 
 const TABS = ["Presensi", "Reward", "SP"];
-const MONTH_NAMES = [
-  "Januari",
-  "Februari",
-  "Maret",
-  "April",
-  "Mei",
-  "Juni",
-  "Juli",
-  "Agustus",
-  "September",
-  "Oktober",
-  "November",
-  "Desember",
-];
+const MONTH_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
 function badgeStyle(status) {
   switch (status) {
-    case "HADIR":
-      return { bg: "#DCFCE7", color: "#166534", text: "Hadir" };
-    case "IZIN":
-      return { bg: "#DBEAFE", color: "#1D4ED8", text: "Izin" };
-    case "SAKIT":
-      return { bg: "#FEF3C7", color: "#92400E", text: "Sakit" };
-    case "TIDAK_HADIR":
-      return { bg: "#FEE2E2", color: "#B91C1C", text: "Tidak Hadir" };
-    case "BELUM_TERJADI":
-      return { bg: "#E0F2FE", color: "#0369A1", text: "Belum Terjadi" };
-    default:
-      return { bg: "#E2E8F0", color: "#334155", text: status || "-" };
+    case "HADIR": return { bg: "#DCFCE7", color: "#166534", text: "Hadir", icon: "checkmark-circle" };
+    case "IZIN": return { bg: "#DBEAFE", color: "#1D4ED8", text: "Izin", icon: "document-text" };
+    case "SAKIT": return { bg: "#FEF3C7", color: "#92400E", text: "Sakit", icon: "medkit" };
+    case "LIBUR": return { bg: "#FFF7ED", color: "#C2410C", text: "Libur", icon: "calendar" };
+    case "TIDAK_HADIR": return { bg: "#FEE2E2", color: "#B91C1C", text: "Tidak Hadir", icon: "close-circle" };
+    default: return { bg: "#F1F5F9", color: "#64748B", text: status || "-", icon: "information-circle" };
   }
 }
 
-function formatDate(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function isFutureDate(dateString) {
-  if (!dateString) return false;
-
-  const today = new Date();
-  const todayOnly = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate()
-  );
-
-  const [y, m, d] = String(dateString).split("-").map(Number);
-  const itemDate = new Date(y, (m || 1) - 1, d || 1);
-
-  return itemDate > todayOnly;
-}
-
-function PickerModal({
-  visible,
-  title,
-  items,
-  selectedValue,
-  onSelect,
-  onClose,
-}) {
+function PickerModal({ visible, title, items, selectedValue, onSelect, onClose }) {
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(15,23,42,0.35)",
-          justifyContent: "flex-end",
-        }}
-      >
+    <Modal visible={visible} transparent animationType="slide">
+      <View style={styles.modalOverlay}>
         <Pressable style={{ flex: 1 }} onPress={onClose} />
-
-        <View
-          style={{
-            backgroundColor: "#FFFFFF",
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            padding: 18,
-            maxHeight: "65%",
-          }}
-        >
-          <View
-            style={{
-              width: 46,
-              height: 5,
-              borderRadius: 999,
-              backgroundColor: "#CBD5E1",
-              alignSelf: "center",
-              marginBottom: 14,
-            }}
-          />
-
-          <Text
-            style={{
-              fontSize: 18,
-              fontWeight: "800",
-              color: "#0F172A",
-              marginBottom: 14,
-              textAlign: "center",
-            }}
-          >
-            {title}
-          </Text>
-
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {items.map((item) => {
-              const active = String(item.value) === String(selectedValue);
-
-              return (
-                <Pressable
-                  key={String(item.value)}
-                  onPress={() => onSelect(item.value)}
-                  style={{
-                    paddingVertical: 14,
-                    paddingHorizontal: 14,
-                    borderRadius: 14,
-                    backgroundColor: active ? "#DBEAFE" : "#F8FAFC",
-                    borderWidth: 1,
-                    borderColor: active ? "#93C5FD" : "#E2E8F0",
-                    marginBottom: 10,
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: active ? "#1D4ED8" : "#334155",
-                      fontWeight: "700",
-                      fontSize: 15,
-                      textAlign: "center",
-                    }}
-                  >
-                    {item.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+        <View style={styles.modalContent}>
+          <View style={styles.modalHandle} />
+          <Text style={styles.modalTitle}>{title}</Text>
+          <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 300 }}>
+            {items.map((item) => (
+              <Pressable key={item.value} onPress={() => onSelect(item.value)} style={[styles.modalItem, String(item.value) === String(selectedValue) && styles.modalItemActive]}>
+                <Text style={[styles.modalItemText, String(item.value) === String(selectedValue) && styles.modalItemTextActive]}>{item.label}</Text>
+              </Pressable>
+            ))}
           </ScrollView>
-
-          <Pressable
-            onPress={onClose}
-            style={{
-              marginTop: 6,
-              backgroundColor: "#2563EB",
-              paddingVertical: 13,
-              borderRadius: 14,
-              alignItems: "center",
-            }}
-          >
-            <Text style={{ color: "#fff", fontWeight: "800" }}>Tutup</Text>
-          </Pressable>
+          <Pressable onPress={onClose} style={styles.modalCloseBtn}><Text style={styles.modalCloseBtnText}>Tutup</Text></Pressable>
         </View>
       </View>
     </Modal>
@@ -182,653 +49,309 @@ function PickerModal({
 }
 
 export default function Riwayat() {
-  const now = new Date();
-
   const [tab, setTab] = useState("Presensi");
   const [filterMode, setFilterMode] = useState("bulanan");
-
-  const [selectedDate, setSelectedDate] = useState(now);
-  const [tanggal, setTanggal] = useState(formatDate(now));
-  const [bulan, setBulan] = useState(String(now.getMonth() + 1).padStart(2, "0"));
-  const [tahun, setTahun] = useState(String(now.getFullYear()));
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [bulan, setBulan] = useState(String(new Date().getMonth() + 1).padStart(2, "0"));
+  const [tahun, setTahun] = useState(String(new Date().getFullYear()));
   const [showMonthModal, setShowMonthModal] = useState(false);
 
   const [items, setItems] = useState([]);
   const [rewardData, setRewardData] = useState(null);
 
-  const monthOptions = useMemo(
-    () =>
-      MONTH_NAMES.map((label, index) => ({
-        label,
-        value: String(index + 1).padStart(2, "0"),
-      })),
-    []
-  );
-
   const load = useCallback(async () => {
+    setLoading(true);
     try {
-      let res;
-
-      if (filterMode === "harian") {
-        res = await apiPresensiRiwayat({
-          mode: "harian",
-          tanggal,
-        });
-      } else {
-        res = await apiPresensiRiwayat({
-          mode: "bulanan",
-          bulan,
-          tahun,
-        });
-      }
-
+      const tglStr = selectedDate.toISOString().split('T')[0];
+      const currentPeriode = `${tahun}-${bulan}`;
+      
+      const res = await apiPresensiRiwayat(
+        filterMode === "harian" ? { mode: "harian", tanggal: tglStr } : { mode: "bulanan", bulan, tahun }
+      );
       setItems(res?.items || []);
 
-      const periode = `${tahun}-${bulan}`;
-      const rs = await apiRewardSpMe(periode);
+      const rs = await apiRewardSpMe(currentPeriode);
       setRewardData(rs || null);
-
-      setShowDatePicker(false);
-    } catch {
-      Alert.alert("Gagal", "Gagal memuat data");
+    } catch (e) {
+      console.log("API Error:", e);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-  }, [filterMode, tanggal, bulan, tahun]);
+  }, [filterMode, selectedDate, bulan, tahun]);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  // PERBAIKAN FATAL: Menambahkan 'load' ke dependency agar data me-refresh saat tab diklik
   useEffect(() => {
-    if (filterMode === "harian") {
-      load();
-    }
-  }, [filterMode, tanggal, load]);
+    load();
+  }, [tab, load]);
 
-  useEffect(() => {
-    if (
-      filterMode === "bulanan" &&
-      /^\d{2}$/.test(bulan) &&
-      /^\d{4}$/.test(tahun)
-    ) {
-      load();
-    }
-  }, [filterMode, bulan, tahun, load]);
-
-const openProtectedPdf = useCallback(async (idDokumen) => {
-  try {
-    const token = await getToken();
-
-    if (!token) {
-      Alert.alert("Gagal", "Token login tidak ditemukan. Silakan login ulang.");
-      return;
-    }
-
-    const relative = apiRewardSpDownloadUrl(idDokumen, token);
-    const baseURL = (await getApiBaseUrl()).replace(/\/$/, "");
-
-    if (!baseURL) {
-      Alert.alert("Gagal", "Base URL API tidak ditemukan");
-      return;
-    }
-
-    const cleanRelative = relative.startsWith("/") ? relative : `/${relative}`;
-    const url = `${baseURL}${cleanRelative}`;
-
-    await Linking.openURL(url);
-  } catch {
-    Alert.alert("Gagal", "Tidak bisa membuka dokumen");
-  }
-}, []);
-
-  const filtered = useMemo(() => {
+const filtered = useMemo(() => {
     if (tab === "Presensi") {
-      if (filterMode === "bulanan") {
-        return items.filter((it) => !isFutureDate(it.tanggal));
-      }
-      return items;
+      // PERBAIKAN SINKRONISASI: Ambil tanggal lokal perangkat (WIB), bukan UTC instan
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      const todayStr = `${year}-${month}-${day}`; // Hasilnya akurat: 2026-05-21
+
+      return items.filter((it) => it.tanggal <= todayStr);
     }
 
-    if (tab === "Reward") return rewardData?.reward?.dokumen ?? [];
-    if (tab === "SP") return rewardData?.sp?.dokumen ?? [];
+    // PERBAIKAN TOTAL FITUR REWARD/SP
+    // Kita kumpulkan semua dokumen dari rewardData tanpa peduli foldernya
+    const allDocs = [
+      ...(rewardData?.reward?.dokumen || []),
+      ...(rewardData?.sp?.dokumen || [])
+    ];
+
+    if (tab === "Reward") {
+      // Cari dokumen yang jenisnya mengandung kata 'REWARD'
+      return allDocs.filter(d => d.jenis?.toUpperCase().includes("REWARD"));
+    }
+
+    if (tab === "SP") {
+      // Cari dokumen yang jenisnya mengandung kata 'SP'
+      return allDocs.filter(d => d.jenis?.toUpperCase().includes("SP"));
+    }
+
     return [];
-  }, [tab, items, rewardData, filterMode]);
+  }, [tab, items, rewardData]);
 
-  const onChangeDate = (_, pickedDate) => {
-    if (Platform.OS === "android") {
-      setShowDatePicker(false);
-    }
+  // Hitung statistik persentase kehadiran dari data yang sudah difilter
+  const attendanceStats = useMemo(() => {
+    if (tab !== "Presensi" || filtered.length === 0) return null;
 
-    if (pickedDate) {
-      setSelectedDate(pickedDate);
-      const formatted = formatDate(pickedDate);
-      setTanggal(formatted);
-      setBulan(String(pickedDate.getMonth() + 1).padStart(2, "0"));
-      setTahun(String(pickedDate.getFullYear()));
-    }
-  };
+    const countable = filtered.filter(it => it.status && it.status !== "LIBUR");
+    const total = countable.length;
+    if (total === 0) return null;
 
-  const handleOpenDatePicker = () => {
-    setShowDatePicker((prev) => !prev);
-  };
+    // IZIN dan SAKIT dihitung masuk ke Hadir (tidak alpa)
+    const hadir = countable.filter(it => ["HADIR", "IZIN", "SAKIT"].includes(it.status)).length;
+    const terlambat = countable.filter(it => it.status === "TERLAMBAT").length;
+    const alpa = countable.filter(it => it.status === "TIDAK_HADIR").length;
 
-  const handleChangeYear = (value) => {
-    const onlyDigits = value.replace(/\D/g, "").slice(0, 4);
-    setTahun(onlyDigits);
-  };
+    return {
+      total,
+      hadir: { count: hadir, pct: Math.round((hadir / total) * 100) },
+      terlambat: { count: terlambat, pct: Math.round((terlambat / total) * 100) },
+      alpa: { count: alpa, pct: Math.round((alpa / total) * 100) },
+    };
+  }, [tab, filtered]);
 
-  const bulanLabel =
-    MONTH_NAMES[Math.max(0, parseInt(bulan, 10) - 1)] || bulan;
+  const openPdf = useCallback(async (id) => {
+    try {
+      const token = await getToken();
+      const relative = apiRewardSpDownloadUrl(id, token);
+      const baseURL = (await getApiBaseUrl()).replace(/\/$/, "");
+      await Linking.openURL(`${baseURL}${relative.startsWith("/") ? relative : `/${relative}`}`);
+    } catch { Alert.alert("Gagal", "Dokumen tidak bisa dibuka."); }
+  }, []);
 
   return (
-    <>
-      <ScrollView
-        style={{ flex: 1, backgroundColor: "#F8FAFC" }}
-        contentContainerStyle={{ padding: 18, paddingBottom: 40 }}
-        showsVerticalScrollIndicator={false}
+    <View style={styles.screen}>
+      <LinearGradient colors={["#2563EB", "#1D4ED8"]} style={styles.header}>
+        <Text style={styles.headerTitle}>Catatan Riwayat</Text>
+      </LinearGradient>
+
+      <View style={styles.tabContainer}>
+        {TABS.map((t) => (
+          <Pressable key={t} onPress={() => setTab(t)} style={[styles.tabButton, tab === t && styles.tabButtonActive]}>
+            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>{t}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {setRefreshing(true); load();}} />}
       >
-        <Text
-          style={{
-            fontSize: 24,
-            fontWeight: "800",
-            marginBottom: 14,
-            color: "#0F172A",
-          }}
-        >
-          Riwayat & Reward/SP
-        </Text>
-
-        <View style={{ flexDirection: "row", marginBottom: 16, gap: 8 }}>
-          {TABS.map((t) => (
-            <Pressable
-              key={t}
-              onPress={() => setTab(t)}
-              style={{
-                flex: 1,
-                paddingVertical: 13,
-                borderRadius: 18,
-                alignItems: "center",
-                backgroundColor: tab === t ? "#DBEAFE" : "#F1F5F9",
-              }}
-            >
-              <Text
-                style={{
-                  fontWeight: "800",
-                  color: tab === t ? "#2563EB" : "#475569",
-                }}
-              >
-                {t}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {tab === "Presensi" && (
-          <View
-            style={{
-              backgroundColor: "#FFFFFF",
-              borderRadius: 22,
-              padding: 14,
-              borderWidth: 1,
-              borderColor: "#E2E8F0",
-              marginBottom: 16,
-              overflow: "hidden",
-            }}
-          >
-            <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
-              <Pressable
-                onPress={() => {
-                  setFilterMode("harian");
-                  setShowDatePicker(false);
-                }}
-                style={{
-                  flex: 1,
-                  backgroundColor: filterMode === "harian" ? "#2563EB" : "#F1F5F9",
-                  paddingVertical: 12,
-                  borderRadius: 14,
-                  alignItems: "center",
-                }}
-              >
-                <Text
-                  style={{
-                    color: filterMode === "harian" ? "#fff" : "#334155",
-                    fontWeight: "700",
-                    fontSize: 15,
-                  }}
-                >
-                  Harian
-                </Text>
+        <View style={styles.filterCard}>
+          {tab === "Presensi" && (
+            <View style={styles.filterTabs}>
+              <Pressable onPress={() => setFilterMode("harian")} style={[styles.filterBtn, filterMode === "harian" && styles.filterBtnActive]}>
+                <Text style={filterMode === "harian" ? styles.activeText : styles.inactiveText}>Harian</Text>
               </Pressable>
-
-              <Pressable
-                onPress={() => {
-                  setFilterMode("bulanan");
-                  setShowDatePicker(false);
-                }}
-                style={{
-                  flex: 1,
-                  backgroundColor: filterMode === "bulanan" ? "#2563EB" : "#F1F5F9",
-                  paddingVertical: 12,
-                  borderRadius: 14,
-                  alignItems: "center",
-                }}
-              >
-                <Text
-                  style={{
-                    color: filterMode === "bulanan" ? "#fff" : "#334155",
-                    fontWeight: "700",
-                    fontSize: 15,
-                  }}
-                >
-                  Bulanan
-                </Text>
+              <Pressable onPress={() => setFilterMode("bulanan")} style={[styles.filterBtn, filterMode === "bulanan" && styles.filterBtnActive]}>
+                <Text style={filterMode === "bulanan" ? styles.activeText : styles.inactiveText}>Bulanan</Text>
               </Pressable>
             </View>
+          )}
 
-            {filterMode === "harian" ? (
-              <View>
-                <Text
-                  style={{
-                    marginBottom: 6,
-                    color: "#334155",
-                    fontWeight: "700",
-                    fontSize: 15,
-                  }}
-                >
-                  Tanggal
-                </Text>
+          {tab === "Presensi" && filterMode === "harian" ? (
+            <Pressable onPress={() => setShowDatePicker(true)} style={styles.inputBox}>
+              <Ionicons name="calendar-outline" size={20} color="#2563EB" />
+              <Text style={styles.inputText}>{selectedDate.toISOString().split('T')[0]}</Text>
+              {showDatePicker && (
+                <DateTimePicker 
+                  value={selectedDate} 
+                  mode="date" 
+                  onChange={(e, d) => { setShowDatePicker(false); if(d) setSelectedDate(d); }} 
+                />
+              )}
+            </Pressable>
+          ) : (
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Pressable onPress={() => setShowMonthModal(true)} style={styles.inputBox}>
+                <Text style={styles.inputText}>{MONTH_NAMES[parseInt(bulan)-1]}</Text>
+                <Ionicons name="chevron-down" size={16} color="#64748B" />
+              </Pressable>
+              <TextInput value={tahun} onChangeText={setTahun} keyboardType="number-pad" style={[styles.inputBox, { width: 80, textAlign: 'center' }]} />
+            </View>
+          )}
+        </View>
 
-                <Pressable
-                  onPress={handleOpenDatePicker}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: "#BFDBFE",
-                    borderRadius: 14,
-                    paddingHorizontal: 14,
-                    paddingVertical: 14,
-                    backgroundColor: "#EFF6FF",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "#0F172A",
-                      fontSize: 16,
-                      fontWeight: "700",
-                    }}
-                  >
-                    {tanggal}
-                  </Text>
-                </Pressable>
+        {/* Kartu Statistik Persentase Kehadiran */}
+        {tab === "Presensi" && !loading && attendanceStats && (
+          <View style={styles.statsCard}>
+            <Text style={styles.statsTitle}>Statistik Kehadiran</Text>
+            <Text style={styles.statsSubtitle}>{attendanceStats.total} hari kerja</Text>
 
-                <Pressable
-                  onPress={handleOpenDatePicker}
-                  style={{
-                    marginTop: 10,
-                    backgroundColor: showDatePicker ? "#DBEAFE" : "#EFF6FF",
-                    borderWidth: 1,
-                    borderColor: showDatePicker ? "#60A5FA" : "#BFDBFE",
-                    borderRadius: 12,
-                    paddingVertical: 10,
-                    alignItems: "center",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "#2563EB",
-                      fontWeight: "700",
-                    }}
-                  >
-                    {showDatePicker ? "Tutup Kalender" : "Ubah Tanggal"}
-                  </Text>
-                </Pressable>
+            {/* Baris progress bar gabungan */}
+            <View style={styles.combinedBar}>
+              {attendanceStats.hadir.count > 0 && (
+                <View style={[styles.barSegment, { flex: attendanceStats.hadir.count, backgroundColor: "#22C55E" }]} />
+              )}
+              {attendanceStats.terlambat.count > 0 && (
+                <View style={[styles.barSegment, { flex: attendanceStats.terlambat.count, backgroundColor: "#F59E0B" }]} />
+              )}
+              {attendanceStats.alpa.count > 0 && (
+                <View style={[styles.barSegment, { flex: attendanceStats.alpa.count, backgroundColor: "#EF4444" }]} />
+              )}
+            </View>
 
-                {showDatePicker && (
-                  <View
-                    style={{
-                      marginTop: 12,
-                      backgroundColor: "#DBEAFE",
-                      borderRadius: 18,
-                      padding: 8,
-                      borderWidth: 1,
-                      borderColor: "#93C5FD",
-                      overflow: "hidden",
-                      alignSelf: "stretch",
-                    }}
-                  >
-                    <View
-                      style={{
-                        backgroundColor: "#EFF6FF",
-                        borderRadius: 16,
-                        overflow: "hidden",
-                      }}
-                    >
-                      <DateTimePicker
-                        value={selectedDate}
-                        mode="date"
-                        display={Platform.OS === "ios" ? "inline" : "calendar"}
-                        onChange={onChangeDate}
-                        accentColor="#2563EB"
-                      />
-                    </View>
-                  </View>
-                )}
-
-                <Text
-                  style={{
-                    textAlign: "center",
-                    marginTop: 12,
-                    fontWeight: "700",
-                    color: "#334155",
-                  }}
-                >
-                  Tanggal dipilih: {tanggal}
-                </Text>
+            {/* Grid statistik */}
+            <View style={styles.statsGrid}>
+              <View style={[styles.statItem, { borderLeftColor: "#22C55E" }]}>
+                <Text style={[styles.statPct, { color: "#16A34A" }]}>{attendanceStats.hadir.pct}%</Text>
+                <Text style={styles.statLabel}>Hadir</Text>
+                <Text style={styles.statCount}>{attendanceStats.hadir.count} hari</Text>
               </View>
-            ) : (
-              <View style={{ gap: 12 }}>
-                <View>
-                  <Text
-                    style={{
-                      marginBottom: 6,
-                      color: "#334155",
-                      fontWeight: "700",
-                      fontSize: 15,
-                    }}
-                  >
-                    Bulan
-                  </Text>
-
-                  <Pressable
-                    onPress={() => setShowMonthModal(true)}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: "#BFDBFE",
-                      borderRadius: 14,
-                      paddingHorizontal: 14,
-                      paddingVertical: 14,
-                      backgroundColor: "#EFF6FF",
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: "#0F172A",
-                        fontSize: 16,
-                        fontWeight: "700",
-                      }}
-                    >
-                      {bulanLabel}
-                    </Text>
-                  </Pressable>
-                </View>
-
-                <View>
-                  <Text
-                    style={{
-                      marginBottom: 6,
-                      color: "#334155",
-                      fontWeight: "700",
-                      fontSize: 15,
-                    }}
-                  >
-                    Tahun
-                  </Text>
-
-                  <TextInput
-                    value={tahun}
-                    onChangeText={handleChangeYear}
-                    placeholder="2026"
-                    keyboardType="number-pad"
-                    maxLength={4}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: "#BFDBFE",
-                      borderRadius: 14,
-                      paddingHorizontal: 14,
-                      paddingVertical: 14,
-                      backgroundColor: "#EFF6FF",
-                      color: "#0F172A",
-                      fontSize: 16,
-                      fontWeight: "700",
-                    }}
-                  />
-                </View>
+              <View style={[styles.statItem, { borderLeftColor: "#F59E0B" }]}>
+                <Text style={[styles.statPct, { color: "#D97706" }]}>{attendanceStats.terlambat.pct}%</Text>
+                <Text style={styles.statLabel}>Terlambat</Text>
+                <Text style={styles.statCount}>{attendanceStats.terlambat.count} hari</Text>
               </View>
-            )}
+              <View style={[styles.statItem, { borderLeftColor: "#EF4444" }]}>
+                <Text style={[styles.statPct, { color: "#DC2626" }]}>{attendanceStats.alpa.pct}%</Text>
+                <Text style={styles.statLabel}>Alpa</Text>
+                <Text style={styles.statCount}>{attendanceStats.alpa.count} hari</Text>
+              </View>
+            </View>
           </View>
         )}
 
-        {(tab === "Reward" || tab === "SP") && rewardData && (
-          <View
-            style={{
-              backgroundColor: "#FFFFFF",
-              borderRadius: 22,
-              padding: 14,
-              borderWidth: 1,
-              borderColor: "#E2E8F0",
-              marginBottom: 16,
-            }}
-          >
-            <Text
-              style={{
-                fontSize: 16,
-                fontWeight: "800",
-                color: "#0F172A",
-                marginBottom: 8,
-              }}
-            >
-              Statistik Periode {rewardData?.periode || "-"}
-            </Text>
-
-            <Text style={{ color: "#334155", marginBottom: 4 }}>
-              Hadir: {rewardData?.statistik?.hadir ?? 0} hari
-            </Text>
-
-            <Text style={{ color: "#334155", marginBottom: 4 }}>
-              Tidak Hadir: {rewardData?.statistik?.tidak_hadir ?? 0} hari
-            </Text>
-
-            <Text style={{ color: "#334155", marginBottom: 4 }}>
-              Izin: {rewardData?.statistik?.izin ?? 0} hari
-            </Text>
-
-            <Text style={{ color: "#334155", marginBottom: 4 }}>
-              Sakit: {rewardData?.statistik?.sakit ?? 0} hari
-            </Text>
-
-            <Text style={{ color: "#334155", marginBottom: 4 }}>
-  Total Hari Kerja Bulan Ini: {rewardData?.statistik?.total_hari_kerja ?? rewardData?.statistik?.total_hari ?? 0} hari
-</Text>
-
-            {tab === "Reward" ? (
-              <Text
-                style={{
-                  color: rewardData?.reward?.eligible ? "#166534" : "#B45309",
-                  fontWeight: "700",
-                  marginTop: 4,
-                }}
-              >
-                {rewardData?.reward?.eligible
-                  ? `Memenuhi syarat reward (minimal hadir ${rewardData?.setting?.minimal_hadir_reward ?? 0} hari)`
-                  : `Belum memenuhi reward (minimal hadir ${rewardData?.setting?.minimal_hadir_reward ?? 0} hari)`}
-              </Text>
-            ) : (
-              <Text
-                style={{
-                  color: rewardData?.sp?.eligible ? "#B91C1C" : "#166534",
-                  fontWeight: "700",
-                  marginTop: 4,
-                }}
-              >
-                {rewardData?.sp?.eligible
-                  ? `Terkena SP (minimal tidak hadir ${rewardData?.setting?.minimal_tidak_hadir_sp ?? 0} hari)`
-                  : "Belum terkena SP"}
-              </Text>
-            )}
+        {loading && !refreshing ? (
+          <ActivityIndicator size="large" color="#2563EB" style={{ marginTop: 40 }} />
+        ) : filtered.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="document-text-outline" size={60} color="#CBD5E1" />
+            <Text style={styles.emptyText}>Tidak ada data {tab} periode ini.</Text>
           </View>
-        )}
-
-        {filtered.length === 0 ? (
-          <Text
-            style={{
-              textAlign: "center",
-              marginTop: 60,
-              color: "#64748B",
-              fontWeight: "700",
-            }}
-          >
-            Belum ada data
-          </Text>
         ) : tab === "Presensi" ? (
           filtered.map((it, idx) => {
             const badge = badgeStyle(it.status);
-
             return (
-              <View
-                key={it.id_detail || `${it.tanggal}-${idx}`}
-                style={{
-                  backgroundColor: "#FFFFFF",
-                  borderRadius: 22,
-                  padding: 16,
-                  marginBottom: 12,
-                  borderWidth: 1,
-                  borderColor: "#E2E8F0",
-                }}
-              >
-                <View
-                  style={{
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 12,
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontWeight: "800",
-                      fontSize: 16,
-                      color: "#0F172A",
-                      flex: 1,
-                    }}
-                  >
-                    {it.tanggal}
-                  </Text>
-
-                  <View
-                    style={{
-                      backgroundColor: badge.bg,
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
-                      borderRadius: 999,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: badge.color,
-                        fontWeight: "800",
-                        fontSize: 12,
-                      }}
-                    >
-                      {badge.text}
-                    </Text>
+              <View key={idx} style={styles.dataCard}>
+                <View style={styles.dataCardHeader}>
+                  <Text style={styles.dateText}>{it.tanggal}</Text>
+                  <View style={[styles.badgeStyle, { backgroundColor: badge.bg }]}>
+                    <Text style={{ color: badge.color, fontWeight: '800', fontSize: 11 }}>{badge.text}</Text>
                   </View>
                 </View>
-
-                <View style={{ marginTop: 12, gap: 4 }}>
-                  <Text style={{ color: "#334155", fontSize: 15 }}>
-                    Masuk: {it.jam_masuk || "-"}
-                  </Text>
-
-                  <Text style={{ color: "#334155", fontSize: 15 }}>
-                    Pulang: {it.jam_pulang || "-"}
-                  </Text>
-
-                  {it.status === "HADIR" && it.is_terlambat === 1 && (
-                    <Text style={{ color: "#B45309", fontWeight: "700" }}>
-                      Terlambat
-                    </Text>
-                  )}
-
-                  {it.status === "TIDAK_HADIR" && (
-                    <Text style={{ color: "#B91C1C" }}>
-                      Tidak ada presensi pada tanggal ini
-                    </Text>
-                  )}
-
-                  {it.status === "BELUM_TERJADI" && filterMode === "harian" && (
-                    <Text style={{ color: "#64748B" }}>
-                      Tanggal ini belum berlangsung
-                    </Text>
-                  )}
-                </View>
+                {it.status === "HADIR" ? (
+                  <View style={styles.timeContainer}>
+                    <Text style={styles.timeValue}>Masuk: {it.jam_masuk?.slice(0, 5)}</Text>
+                    <Text style={styles.timeValue}>Pulang: {it.jam_pulang?.slice(0, 5) || "--:--"}</Text>
+                  </View>
+                ) : <Text style={styles.infoMuted}>{it.status === "LIBUR" ? it.keterangan_libur : "Tidak ada rekaman"}</Text>}
               </View>
             );
           })
         ) : (
           filtered.map((doc, idx) => (
-            <View
-              key={doc.id_dokumen || `${doc.periode}-${idx}`}
-              style={{
-                backgroundColor: "#FFFFFF",
-                borderRadius: 22,
-                padding: 16,
-                marginBottom: 12,
-                borderWidth: 1,
-                borderColor: "#E2E8F0",
-              }}
-            >
-              <Text
-                style={{
-                  fontWeight: "800",
-                  fontSize: 16,
-                  color: "#0F172A",
-                }}
-              >
-                {doc.jenis} • {doc.periode}
-              </Text>
-
-              <Text style={{ color: "#475569", marginTop: 6 }}>
-                {doc.deskripsi || "Dokumen tersedia"}
-              </Text>
-
-              <Text style={{ color: "#64748B", marginTop: 4 }}>
-                Status:{" "}
-                {doc.status_unduh === "SUDAH_DIUNDUH"
-                  ? "Sudah diunduh"
-                  : "Belum diunduh"}
-              </Text>
-
-              <Pressable
-                onPress={() => openProtectedPdf(doc.id_dokumen)}
-                style={{
-                  marginTop: 12,
-                  backgroundColor: "#2563EB",
-                  paddingVertical: 11,
-                  borderRadius: 14,
-                  alignItems: "center",
-                }}
-              >
-                <Text style={{ color: "#fff", fontWeight: "800" }}>
-                  Unduh PDF
-                </Text>
+            <View key={idx} style={styles.docCard}>
+              <View style={styles.docInfo}>
+                <Ionicons name="document-pdf" size={32} color="#EF4444" />
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <Text style={styles.docTitle}>{doc.jenis} - {doc.periode}</Text>
+                  <Text style={styles.docDesc}>{doc.deskripsi}</Text>
+                </View>
+              </View>
+              <Pressable onPress={() => openPdf(doc.id_dokumen)} style={styles.downloadBtn}>
+                <Text style={styles.downloadBtnText}>UNDUH PDF</Text>
               </Pressable>
             </View>
           ))
         )}
       </ScrollView>
 
-      <PickerModal
-        visible={showMonthModal}
-        title="Pilih Bulan"
-        items={monthOptions}
-        selectedValue={bulan}
-        onSelect={(value) => {
-          setBulan(value);
-          setShowMonthModal(false);
-        }}
-        onClose={() => setShowMonthModal(false)}
+      <PickerModal 
+        visible={showMonthModal} title="Pilih Bulan" 
+        items={MONTH_NAMES.map((m, i) => ({ label: m, value: String(i+1).padStart(2, "0") }))} 
+        selectedValue={bulan} onSelect={(v) => { setBulan(v); setShowMonthModal(false); }} onClose={() => setShowMonthModal(false)} 
       />
-    </>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: "#F8FAFC" },
+  header: { paddingTop: 60, paddingBottom: 40, alignItems: "center" },
+  headerTitle: { color: "#FFF", fontSize: 20, fontWeight: "800" },
+  tabContainer: { flexDirection: "row", backgroundColor: "#FFF", marginHorizontal: 20, marginTop: -25, borderRadius: 16, padding: 6, elevation: 3 },
+  tabButton: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 12 },
+  tabButtonActive: { backgroundColor: "#EFF6FF" },
+  tabText: { fontSize: 13, fontWeight: "700", color: "#64748B" },
+  tabTextActive: { color: "#2563EB" },
+  scrollContent: { padding: 20 },
+  filterCard: { backgroundColor: "#FFF", borderRadius: 20, padding: 16, marginBottom: 16 },
+  filterTabs: { flexDirection: "row", backgroundColor: "#F1F5F9", borderRadius: 12, padding: 4, marginBottom: 12 },
+  filterBtn: { flex: 1, paddingVertical: 8, alignItems: "center", borderRadius: 10 },
+  filterBtnActive: { backgroundColor: "#FFF", elevation: 1 },
+  activeText: { color: "#0F172A", fontWeight: "700" },
+  inactiveText: { color: "#64748B" },
+  inputBox: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#F8FAFC", borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 12, padding: 12 },
+  inputText: { fontWeight: "700", color: "#1E293B" },
+  dataCard: { backgroundColor: "#FFF", borderRadius: 20, padding: 16, marginBottom: 12, elevation: 1 },
+  dataCardHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 10 },
+  dateText: { fontWeight: "800", color: "#334155" },
+  badgeStyle: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  timeContainer: { flexDirection: "row", justifyContent: "space-between", marginTop: 5 },
+  timeValue: { fontSize: 14, fontWeight: "700", color: "#1E293B" },
+  infoMuted: { fontStyle: "italic", color: "#94A3B8", fontSize: 13 },
+  docCard: { backgroundColor: "#FFF", borderRadius: 20, padding: 16, marginBottom: 12, elevation: 2 },
+  docInfo: { flexDirection: "row", alignItems: "center", marginBottom: 15 },
+  docTitle: { fontWeight: "800", color: "#1E293B" },
+  docDesc: { color: "#64748B", fontSize: 12 },
+  downloadBtn: { backgroundColor: "#2563EB", padding: 12, borderRadius: 12, alignItems: "center" },
+  downloadBtnText: { color: "#FFF", fontWeight: "800" },
+  emptyContainer: { alignItems: "center", marginTop: 50 },
+  emptyText: { color: "#94A3B8", marginTop: 15, fontWeight: "600" },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  modalContent: { backgroundColor: "#FFF", borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 20 },
+  modalHandle: { width: 40, height: 5, backgroundColor: "#E2E8F0", alignSelf: "center", marginBottom: 20 },
+  modalTitle: { fontSize: 18, fontWeight: "800", textAlign: "center", marginBottom: 15 },
+  modalItem: { padding: 15, borderRadius: 12, marginBottom: 5 },
+  modalItemActive: { backgroundColor: "#EFF6FF" },
+  modalItemText: { textAlign: "center", color: "#475569" },
+  modalItemTextActive: { color: "#2563EB", fontWeight: "800" },
+  modalCloseBtn: { marginTop: 10, padding: 15, alignItems: "center" },
+
+  // Statistik Kehadiran
+  statsCard: { backgroundColor: "#FFF", borderRadius: 20, padding: 16, marginBottom: 16, elevation: 2 },
+  statsTitle: { fontSize: 15, fontWeight: "800", color: "#1E293B", marginBottom: 2 },
+  statsSubtitle: { fontSize: 12, color: "#94A3B8", marginBottom: 12 },
+  combinedBar: { flexDirection: "row", height: 10, borderRadius: 10, overflow: "hidden", backgroundColor: "#F1F5F9", marginBottom: 16 },
+  barSegment: { height: "100%" },
+  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  statItem: { flex: 1, minWidth: "28%", backgroundColor: "#F8FAFC", borderRadius: 12, padding: 12, borderLeftWidth: 4 },
+  statPct: { fontSize: 20, fontWeight: "900" },
+  statLabel: { fontSize: 11, color: "#475569", fontWeight: "600", marginTop: 2 },
+  statCount: { fontSize: 11, color: "#94A3B8", marginTop: 2 },
+});
